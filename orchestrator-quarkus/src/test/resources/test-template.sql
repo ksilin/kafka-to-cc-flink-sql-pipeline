@@ -1,0 +1,4 @@
+INSERT INTO __OUTPUT_TOPIC__
+SELECT * FROM __INPUT_TOPIC__
+WHERE vehicleId = '__VEHICLE_ID__'
+  AND mdc_id IN (__MDC_ID_CSV__);

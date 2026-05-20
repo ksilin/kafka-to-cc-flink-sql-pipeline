@@ -1,0 +1,19 @@
+# Per-machine env, never committed
+config/env.sh
+
+# CC run logs (regenerated on every harness run)
+verification/*.log
+verification/*.tmp
+
+# Maven build artifacts
+orchestrator/target/
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*~
+
+# Quarkus/Gradle build artifacts
+orchestrator-quarkus/build/
+orchestrator-quarkus/.gradle/
+orchestrator-quarkus/.quarkus/

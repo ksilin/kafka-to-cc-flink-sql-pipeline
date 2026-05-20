@@ -1,0 +1,74 @@
+# kafka-to-sql-filter / Quarkus orchestrator
+# Mirrors upstream service config patterns
+
+# ─── Confluent Cloud Flink config ──────────────────────────────────────────────
+cc:
+  compute-pool: ${CC_COMPUTE_POOL:lfcp-kknvdm}
+  cluster: ${CC_CLUSTER_ID:lkc-6w3rv2}
+  environment: ${CC_ENV_ID:env-nvv5xz}
+  cloud: ${CC_CLOUD:aws}
+  region: ${CC_REGION:eu-central-1}
+
+# ─── Filter config ─────────────────────────────────────────────────────────────
+kf:
+  input-topic: ${KF_INPUT_TOPIC:kf-input-test}
+  output-topic: ${KF_OUTPUT_TOPIC:kf-data-test}
+  sql-template-path: ${KF_SQL_TEMPLATE_PATH:../sql/01-filter-template.sql}
+
+# ─── SmallRye Reactive Messaging (Kafka) ───────────────────────────────────────
+mp:
+  messaging:
+    incoming:
+      subscriptions:
+        connector: smallrye-kafka
+        topic: ${KF_SUBSCRIPTION_TOPIC:kf-sub-test}
+        group:
+          id: ${KF_CONSUMER_GROUP:kf-orchestrator-group}
+        value:
+          deserializer: com.example.kf2sql.quarkus.config.SubscriptionDeserializer
+        enable:
+          auto:
+            commit: false
+
+    outgoing:
+      acks:
+        connector: smallrye-kafka
+        topic: ${KF_ACK_TOPIC:kf-ack-test}
+        value:
+          serializer: io.quarkus.kafka.client.serialization.ObjectMapperSerializer
+
+# ─── Kafka bootstrap (shared by all channels) ──────────────────────────────────
+kafka:
+  bootstrap:
+    servers: ${KAFKA_BOOTSTRAP_SERVERS:pkc-7xoy1.eu-central-1.aws.confluent.cloud:9092}
+  security:
+    protocol: ${KAFKA_SECURITY_PROTOCOL:SASL_SSL}
+  sasl:
+    mechanism: ${KAFKA_SASL_MECHANISM:PLAIN}
+    jaas:
+      config: >-
+        org.apache.kafka.common.security.plain.PlainLoginModule required
+        username='${KAFKA_API_KEY:}'
+        password='${KAFKA_API_SECRET:}';
+
+# ─── Quarkus ───────────────────────────────────────────────────────────────────
+quarkus:
+  log:
+    level: INFO
+    category:
+      "com.example.kf2sql":
+        level: DEBUG
+
+# ─── Test profile ──────────────────────────────────────────────────────────────
+"%test":
+  kf:
+    sql-template-path: "src/test/resources/test-template.sql"
+  mp:
+    messaging:
+      incoming:
+        subscriptions:
+          # In-memory connector for tests (no real Kafka needed)
+          connector: smallrye-in-memory
+      outgoing:
+        acks:
+          connector: smallrye-in-memory

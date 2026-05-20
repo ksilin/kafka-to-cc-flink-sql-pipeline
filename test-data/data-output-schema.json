@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DataTopicEnvelope",
+  "description": "Data topic record (one per signal). Flat envelope wrapping a single payload signal. Per CONTRACT.md §8.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["payload", "payloadUrl", "time", "useCaseIds", "userId", "userMessageId", "vehicleId"],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "containerId", "containerMsgCount", "containerMsgId", "correlationId",
+        "g_id", "ingest_timestamp", "mdc_id", "name", "orderId", "orderVersion",
+        "timestamp", "unit", "value"
+      ],
+      "properties": {
+        "containerId":       { "type": "string" },
+        "containerMsgCount": { "type": "string" },
+        "containerMsgId":    { "type": "string" },
+        "correlationId":     { "type": "string" },
+        "g_id":              { "type": "string" },
+        "ingest_timestamp":  { "type": "string" },
+        "mdc_id":            { "type": "string" },
+        "name":              { "type": "string" },
+        "orderId":           { "type": "string" },
+        "orderVersion":      { "type": "string" },
+        "timestamp":         { "type": "string" },
+        "unit":              { "type": "string" },
+        "value":             { "type": "string" }
+      }
+    },
+    "payloadUrl":    { "type": "string" },
+    "time":          { "type": "string" },
+    "useCaseIds":    { "type": "array", "items": { "type": "string" } },
+    "userId":        { "type": "string" },
+    "userMessageId": { "type": "string" },
+    "vehicleId":     { "type": "string" }
+  }
+}
