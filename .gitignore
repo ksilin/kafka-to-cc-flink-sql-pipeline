@@ -1,5 +1,6 @@
-# Per-machine env, never committed
+# Per-machine env + secrets, never committed
 config/env.sh
+config/ccloud.properties
 
 # CC run logs (regenerated on every harness run)
 verification/*.log

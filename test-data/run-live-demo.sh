@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # run-live-demo.sh — Observable live demo with persistent state
 #
-# Unlike verify-phase1.sh (automated diff, cleans up) and run-fixture-demo.sh
-# (file mode, no Kafka topics for sub/ack), this script:
+# Unlike verify-phase1.sh (automated diff, cleans up), this script:
 #
 # 1. Creates ALL four topics (input, output, subscription, ack)
 # 2. Creates the output table DDL
 # 3. Produces telemetry fixture data to the input topic (data stays visible)
-# 4. Walks you through subscribing, observing output, updating, unsubscribing
+# 4. Walks you through subscribing (via Kafka topics), observing output, updating, unsubscribing
 # 5. Does NOT clean up — you observe at your pace, clean manually when done
 #
 # Usage:
@@ -46,6 +45,7 @@ TEMPLATE="$DIR/sql/01-filter-template.sql"
 STATE_FILE="/tmp/live-demo-state.json"
 DDL_SQL="$DIR/sql/00-create-output-table.sql"
 FIXTURE="$DIR/test-data/fixtures/F1-input.jsonl"
+KAFKA_PROPS="$DIR/config/ccloud.properties"
 
 log() { printf '\n[%s] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 
@@ -59,6 +59,7 @@ ensure_login() {
   fi
   confluent environment use "$CC_ENV_ID" >/dev/null 2>&1
   confluent kafka cluster use "$CC_CLUSTER_ID" >/dev/null 2>&1
+  [[ -f "$KAFKA_PROPS" ]] || { echo "ERROR: $KAFKA_PROPS not found — see config/README.md"; exit 2; }
 }
 
 topic_exists() {
@@ -153,19 +154,25 @@ case "$STEP" in
     ensure_login
     log "=== SUBSCRIBE: vehicle-fixture-001 + mdc_id IN (100, 200) ==="
 
-    python3 "$DIR/test-data/generate-subscription-msg.py" \
+    SUB_JSON=$(python3 "$DIR/test-data/generate-subscription-msg.py" \
       --mode single \
       --vehicle vehicle-fixture-001 \
       --correlation "live-demo-c1" \
-      --mdc 100,200 \
-      > /tmp/live-sub.json
+      --mdc 100,200)
 
-    log "Subscription: $(cat /tmp/live-sub.json)"
-    log "Running orchestrator (file mode)..."
+    log "Producing subscription to $SUB_TOPIC: $SUB_JSON"
+    echo "$SUB_JSON" | confluent kafka topic produce "$SUB_TOPIC" \
+      --cluster "$CC_CLUSTER_ID" >/dev/null 2>&1
 
+    log "Running orchestrator (kafka mode — polls $SUB_TOPIC, writes ACK to $ACK_TOPIC)..."
     java -jar "$ORCHESTRATOR_JAR" \
-      --mode file \
-      --subscription /tmp/live-sub.json \
+      --mode kafka \
+      --kafka-props "$KAFKA_PROPS" \
+      --subscription-topic "$SUB_TOPIC" \
+      --ack-topic "$ACK_TOPIC" \
+      --group-id "live-demo-orchestrator" \
+      --max-messages 1 \
+      --max-poll-empty 6 \
       --template "$TEMPLATE" \
       --state "$STATE_FILE" \
       --input-topic "$INPUT_TOPIC" \
@@ -175,6 +182,14 @@ case "$STEP" in
       --environment "$CC_ENV_ID" \
       --cloud "$CC_CLOUD" \
       --region "$CC_REGION"
+
+    log "Latest ACK from $ACK_TOPIC:"
+    timeout 15 confluent kafka topic consume "$ACK_TOPIC" \
+      --cluster "$CC_CLUSTER_ID" --from-beginning --print-key=false \
+      --value-format string 2>/dev/null \
+      | grep --line-buffered -v '^%' \
+      | grep --line-buffered -v '^Starting' \
+      | tail -n 1
 
     log "=== SUBSCRIBE DONE ==="
     echo ""
@@ -223,19 +238,25 @@ case "$STEP" in
     ensure_login
     log "=== UPDATE: vehicle-fixture-001 + mdc_id IN (200, 300) ==="
 
-    python3 "$DIR/test-data/generate-subscription-msg.py" \
+    SUB_JSON=$(python3 "$DIR/test-data/generate-subscription-msg.py" \
       --mode update \
       --vehicle vehicle-fixture-001 \
       --correlation "live-demo-c2" \
-      --mdc 200,300 \
-      > /tmp/live-sub-update.json
+      --mdc 200,300)
 
-    log "Updated subscription: $(cat /tmp/live-sub-update.json)"
-    log "Running orchestrator (carry-over offsets)..."
+    log "Producing update subscription to $SUB_TOPIC: $SUB_JSON"
+    echo "$SUB_JSON" | confluent kafka topic produce "$SUB_TOPIC" \
+      --cluster "$CC_CLUSTER_ID" >/dev/null 2>&1
 
+    log "Running orchestrator (kafka mode — carry-over offsets)..."
     java -jar "$ORCHESTRATOR_JAR" \
-      --mode file \
-      --subscription /tmp/live-sub-update.json \
+      --mode kafka \
+      --kafka-props "$KAFKA_PROPS" \
+      --subscription-topic "$SUB_TOPIC" \
+      --ack-topic "$ACK_TOPIC" \
+      --group-id "live-demo-orchestrator" \
+      --max-messages 1 \
+      --max-poll-empty 6 \
       --template "$TEMPLATE" \
       --state "$STATE_FILE" \
       --input-topic "$INPUT_TOPIC" \
@@ -245,6 +266,14 @@ case "$STEP" in
       --environment "$CC_ENV_ID" \
       --cloud "$CC_CLOUD" \
       --region "$CC_REGION"
+
+    log "Consuming ACK from $ACK_TOPIC..."
+    timeout 15 confluent kafka topic consume "$ACK_TOPIC" \
+      --cluster "$CC_CLUSTER_ID" --from-beginning --print-key=false \
+      --value-format string 2>/dev/null \
+      | grep --line-buffered -v '^%' \
+      | grep --line-buffered -v '^Starting' \
+      | tail -n 1
 
     log "=== UPDATE DONE ==="
     echo ""
@@ -269,15 +298,24 @@ case "$STEP" in
     ensure_login
     log "=== UNSUBSCRIBE: vehicle-fixture-001 ==="
 
-    python3 "$DIR/test-data/generate-subscription-msg.py" \
+    SUB_JSON=$(python3 "$DIR/test-data/generate-subscription-msg.py" \
       --mode unsubscribe \
       --vehicle vehicle-fixture-001 \
-      --correlation "live-demo-c3" \
-      > /tmp/live-sub-unsub.json
+      --correlation "live-demo-c3")
 
+    log "Producing unsubscribe to $SUB_TOPIC: $SUB_JSON"
+    echo "$SUB_JSON" | confluent kafka topic produce "$SUB_TOPIC" \
+      --cluster "$CC_CLUSTER_ID" >/dev/null 2>&1
+
+    log "Running orchestrator (kafka mode)..."
     java -jar "$ORCHESTRATOR_JAR" \
-      --mode file \
-      --subscription /tmp/live-sub-unsub.json \
+      --mode kafka \
+      --kafka-props "$KAFKA_PROPS" \
+      --subscription-topic "$SUB_TOPIC" \
+      --ack-topic "$ACK_TOPIC" \
+      --group-id "live-demo-orchestrator" \
+      --max-messages 1 \
+      --max-poll-empty 6 \
       --template "$TEMPLATE" \
       --state "$STATE_FILE" \
       --input-topic "$INPUT_TOPIC" \
@@ -287,6 +325,14 @@ case "$STEP" in
       --environment "$CC_ENV_ID" \
       --cloud "$CC_CLOUD" \
       --region "$CC_REGION"
+
+    log "Consuming ACK from $ACK_TOPIC..."
+    timeout 15 confluent kafka topic consume "$ACK_TOPIC" \
+      --cluster "$CC_CLUSTER_ID" --from-beginning --print-key=false \
+      --value-format string 2>/dev/null \
+      | grep --line-buffered -v '^%' \
+      | grep --line-buffered -v '^Starting' \
+      | tail -n 1
 
     log "=== UNSUBSCRIBE DONE ==="
     echo "Statement stopped. No more output from new data."
@@ -352,7 +398,7 @@ for s in json.load(sys.stdin):
       confluent schema-registry subject delete "$subj" --permanent --force 2>/dev/null || true
     done
 
-    rm -f "$STATE_FILE" /tmp/live-sub*.json
+    rm -f "$STATE_FILE"
     log "=== CLEAN DONE ==="
     ;;
 
@@ -382,6 +428,6 @@ for s in json.load(sys.stdin):
     echo "  - Does NOT auto-cleanup — resources persist for observation"
     echo "  - CC Flink reads from EARLIEST by default — setup data is processed on subscribe"
     echo "  - Shows record counts + mdc_id/signal summary (not raw JSON)"
-    echo "  - Creates subscription + ACK topics (unused in file mode but visible)"
+    echo "  - Uses kafka mode: subscriptions via $SUB_TOPIC, ACKs via $ACK_TOPIC"
     ;;
 esac

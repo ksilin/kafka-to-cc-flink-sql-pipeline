@@ -12,12 +12,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for {@link KafkaConfig}. {@link AckProducer} and {@link SubscriptionConsumer}
- * are integration concerns (need a real broker); covered by Phase 08.1's IT and demo runner.
- *
- * Why no unit test for AckProducer/SubscriptionConsumer here: KafkaProducer/Consumer
- * cannot be reasonably stubbed without an embedded broker (testcontainers /
- * EmbeddedKafkaBroker). For V1 PoC scope, we rely on the demo runner (08.2) to validate
- * end-to-end against real Kafka.
+ * are integration concerns (need a real broker); covered by the demo runners
+ * (run-fixture-demo.sh and run-live-demo.sh) which exercise kafka mode end-to-end.
  */
 class KafkaConfigTest {
 
